@@ -1,0 +1,13 @@
+{
+  "name": "roleflow-status-bot",
+  "version": "1.0.0",
+  "description": "BetterStack to Discord Webhook Relay for RoleFlow Status & Uptime Monitoring",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test-webhook": "node test.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5"
+  }
+}
