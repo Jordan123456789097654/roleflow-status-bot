@@ -2,30 +2,32 @@ require("dotenv").config();
 
 const WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
 const STATUS_PAGE_URL = process.env.STATUS_PAGE_URL || "https://status.roleflow.site";
+const NOTIFY_ROLE_ID = process.env.DISCORD_ROLE_ID || "1565074386866802788";
 
-async function sendTestPreview() {
-  console.log("Sending sample test status embed with Reason field to Discord...");
+async function sendMaintenancePreview() {
+  console.log("Sending sample Auto-Maintenance activation embed to Discord...");
 
-  const sampleEmbed = {
-    title: "🔴 RoleFlow API & Database Health: SERVICE DISRUPTED / DOWN",
+  const maintEmbed = {
+    title: "🟡 Scheduled Platform Maintenance in Progress",
     url: STATUS_PAGE_URL,
-    color: 0xef4444, // Crimson Red
-    description: "**Service Disruption Detected:** An outage or degraded performance has been detected by the uptime probe.",
+    color: 0xf59e0b, // Amber Gold
+    description:
+      "**Platform Maintenance Activated:** RoleFlow has entered scheduled maintenance mode. Public submission queues and candidate portals are temporarily locked while upgrades are applied.",
     fields: [
       {
-        name: "Endpoint URL",
-        value: "`https://roleflow.site/api/health`",
-        inline: true,
-      },
-      {
-        name: "Current State",
-        value: "`DOWN`",
-        inline: true,
-      },
-      {
-        name: "Failure Reason / Root Cause",
-        value: "`Status 502 — Bad Gateway`",
+        name: "Reason / Maintenance Scope",
+        value: "`Upgrading PostgreSQL database clusters & Discord bot shards. Expected downtime: ~15 minutes.`",
         inline: false,
+      },
+      {
+        name: "Affected Systems",
+        value: "`roleflow.site web portal, candidate forms, public browse`",
+        inline: true,
+      },
+      {
+        name: "Staff & Founder Access",
+        value: "`Bypass active via Discord OAuth`",
+        inline: true,
       },
       {
         name: "Live Status Page",
@@ -34,7 +36,7 @@ async function sendTestPreview() {
       },
     ],
     footer: {
-      text: "RoleFlow Uptime & SRE Network • BetterStack Relay",
+      text: "RoleFlow SRE Operations • Automated Maintenance Broadcast",
       icon_url: "https://roleflow.site/logo.png",
     },
     timestamp: new Date().toISOString(),
@@ -43,7 +45,11 @@ async function sendTestPreview() {
   const payload = {
     username: "RoleFlow Status",
     avatar_url: "https://roleflow.site/logo.png",
-    embeds: [sampleEmbed],
+    content: `<@&${NOTIFY_ROLE_ID}>`,
+    allowed_mentions: {
+      roles: [NOTIFY_ROLE_ID],
+    },
+    embeds: [maintEmbed],
   };
 
   const res = await fetch(WEBHOOK_URL, {
@@ -53,10 +59,10 @@ async function sendTestPreview() {
   });
 
   if (res.ok) {
-    console.log("Sample test webhook successfully delivered to Discord!");
+    console.log("Auto-maintenance preview delivered to Discord!");
   } else {
     console.error("Failed to send webhook:", res.status, await res.text());
   }
 }
 
-sendTestPreview().catch(console.error);
+sendMaintenancePreview().catch(console.error);

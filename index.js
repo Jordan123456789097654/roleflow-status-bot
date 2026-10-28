@@ -7,6 +7,7 @@ const WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
 const POLL_INTERVAL = (parseInt(process.env.POLL_INTERVAL_SECONDS, 10) || 30) * 1000;
 const STATUS_PAGE_URL = process.env.STATUS_PAGE_URL || "https://status.roleflow.site";
 const NOTIFY_ROLE_ID = process.env.DISCORD_ROLE_ID || "1565074386866802788";
+const APP_URL = process.env.APP_URL || "https://roleflow.site";
 const STATE_FILE = path.join(__dirname, "state.json");
 
 if (!API_TOKEN || !WEBHOOK_URL) {
@@ -24,7 +25,10 @@ function loadState() {
   }
   return {
     monitors: {},
-    lastIncidentIds: [],
+    maintenance: {
+      enabled: null,
+      message: "",
+    },
     initialized: false,
   };
 }
@@ -37,12 +41,12 @@ function saveState(state) {
   }
 }
 
-async function postDiscordWebhook(embed, isDown = false) {
+async function postDiscordWebhook(embed, pingRole = false) {
   try {
     const payload = {
       username: "RoleFlow Status",
       avatar_url: "https://roleflow.site/logo.png",
-      content: isDown && NOTIFY_ROLE_ID ? `<@&${NOTIFY_ROLE_ID}>` : "",
+      content: pingRole && NOTIFY_ROLE_ID ? `<@&${NOTIFY_ROLE_ID}>` : "",
       allowed_mentions: {
         roles: [NOTIFY_ROLE_ID],
       },
@@ -63,6 +67,75 @@ async function postDiscordWebhook(embed, isDown = false) {
     }
   } catch (err) {
     console.error("Error posting to Discord webhook:", err.message);
+  }
+}
+
+function createMaintenanceEmbed(enabled, message) {
+  if (enabled) {
+    return {
+      title: "🟡 Scheduled Platform Maintenance in Progress",
+      url: STATUS_PAGE_URL,
+      color: 0xf59e0b, // Amber Gold
+      description:
+        "**Platform Maintenance Activated:** RoleFlow has entered scheduled maintenance mode. Public submission queues and candidate portals are temporarily locked while upgrades are applied.",
+      fields: [
+        {
+          name: "Reason / Maintenance Scope",
+          value: `\`${message || "RoleFlow is currently undergoing scheduled platform maintenance. Please check back shortly."}\``,
+          inline: false,
+        },
+        {
+          name: "Affected Systems",
+          value: "`roleflow.site web portal, candidate forms, public browse`",
+          inline: true,
+        },
+        {
+          name: "Staff & Founder Access",
+          value: "`Bypass active via Discord OAuth`",
+          inline: true,
+        },
+        {
+          name: "Live Status Page",
+          value: `[status.roleflow.site](${STATUS_PAGE_URL})`,
+          inline: false,
+        },
+      ],
+      footer: {
+        text: "RoleFlow SRE Operations • Automated Maintenance Broadcast",
+        icon_url: "https://roleflow.site/logo.png",
+      },
+      timestamp: new Date().toISOString(),
+    };
+  } else {
+    return {
+      title: "🟢 Scheduled Maintenance Completed — Platform Restored",
+      url: STATUS_PAGE_URL,
+      color: 0x22c55e, // Emerald Green
+      description:
+        "**Maintenance Complete:** Platform upgrades have finished. RoleFlow is fully operational and public access has been restored.",
+      fields: [
+        {
+          name: "Platform Status",
+          value: "`100% OPERATIONAL`",
+          inline: true,
+        },
+        {
+          name: "System Health",
+          value: "`All endpoints returning HTTP 200 OK`",
+          inline: true,
+        },
+        {
+          name: "Live Web Portal",
+          value: `[roleflow.site](${APP_URL}) • [status.roleflow.site](${STATUS_PAGE_URL})`,
+          inline: false,
+        },
+      ],
+      footer: {
+        text: "RoleFlow SRE Operations • Maintenance Concluded",
+        icon_url: "https://roleflow.site/logo.png",
+      },
+      timestamp: new Date().toISOString(),
+    };
   }
 }
 
@@ -113,8 +186,33 @@ function createStatusEmbed({ name, url, previousStatus, currentStatus, reason })
   };
 }
 
-async function checkMonitors(state) {
+async function checkSystem(state) {
   try {
+    // 1. AUTO-MAINTENANCE SYNC
+    try {
+      const maintRes = await fetch(`${APP_URL}/api/admin/maintenance`, { cache: "no-store" });
+      if (maintRes.ok) {
+        const maintData = await maintRes.json();
+        const currentEnabled = Boolean(maintData.enabled);
+        const currentMsg = maintData.message || "";
+
+        if (state.maintenance && state.maintenance.enabled !== null && state.maintenance.enabled !== currentEnabled) {
+          console.log(`[Maintenance Change] Enabled: ${state.maintenance.enabled} -> ${currentEnabled} (${currentMsg})`);
+          const maintEmbed = createMaintenanceEmbed(currentEnabled, currentMsg);
+          await postDiscordWebhook(maintEmbed, currentEnabled);
+        }
+
+        state.maintenance = {
+          enabled: currentEnabled,
+          message: currentMsg,
+        };
+        saveState(state);
+      }
+    } catch (e) {
+      console.warn("Could not check maintenance mode:", e.message);
+    }
+
+    // 2. BETTERSTACK MONITORS
     const res = await fetch("https://uptime.betterstack.com/api/v2/monitors", {
       headers: { Authorization: `Bearer ${API_TOKEN}` },
     });
@@ -181,14 +279,14 @@ async function checkMonitors(state) {
 }
 
 async function main() {
-  console.log("=== RoleFlow BetterStack Status Relay Bot Started ===");
+  console.log("=== RoleFlow BetterStack & Maintenance Relay Bot Started ===");
   console.log(`Target Status Page: ${STATUS_PAGE_URL}`);
   const state = loadState();
 
-  await checkMonitors(state);
+  await checkSystem(state);
 
   setInterval(() => {
-    checkMonitors(state);
+    checkSystem(state);
   }, POLL_INTERVAL);
 }
 
