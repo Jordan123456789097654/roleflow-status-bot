@@ -1,24 +1,47 @@
 # RoleFlow Status Bot (BetterStack Relay)
 
-A serverless status relay engineered for **Vercel Cron** or standalone Node.js environments. It checks BetterStack's live monitor and incident endpoints, extracting root causes and sending branded Discord alerts.
+A lightweight 24/7 background worker configured for **Render.com**. It continuously polls BetterStack's monitors & incident APIs, checks RoleFlow maintenance mode, and relays branded Discord alerts with root-cause extraction.
 
 ---
 
-## ⚡ Deployment on Vercel
+## 🚀 1-Click Deployment on Render
 
-1. **Import this repository** in your [Vercel Dashboard](https://vercel.com/new).
-2. Add the following **Environment Variables** in Vercel Project Settings:
-   - `BETTERSTACK_API_TOKEN`: Your BetterStack API v2 token (`MXuY...`)
-   - `DISCORD_WEBHOOK_URL`: Your Discord webhook URL
-   - `DISCORD_ROLE_ID`: `1565074386866802788` (Pings on downtime)
-   - `STATUS_PAGE_URL`: `https://status.roleflow.site`
-3. Click **Deploy**.
-4. Vercel will automatically configure the cron job from `vercel.json` (`/api/cron` running every minute) to monitor your site 24/7 with zero server costs!
+You can deploy this as either a **Background Worker** or a **Web Service** on Render.
+
+### Option A: Deploy via Blueprint (Easiest)
+1. Go to your [Render Dashboard](https://dashboard.render.com/).
+2. Click **New +** -> **Blueprint**.
+3. Connect your repository: `https://github.com/Jordan123456789097654/roleflow-status-bot.git`.
+4. Render will automatically detect `render.yaml`.
+5. Enter the two secret environment variables:
+   - `BETTERSTACK_API_TOKEN`
+   - `DISCORD_WEBHOOK_URL`
+6. Click **Apply**.
 
 ---
 
-## 🔔 Discord Alert Features
+### Option B: Deploy as a Background Worker Manually
+1. On Render, click **New +** -> **Background Worker**.
+2. Connect `roleflow-status-bot`.
+3. Fill in the build & run settings:
+   - **Environment**: `Node`
+   - **Build Command**: `npm install`
+   - **Start Command**: `npm start`
+4. Add the **Environment Variables**:
+   ```env
+   BETTERSTACK_API_TOKEN=MXuYEq5B3HrrDxPpGqaVeET9
+   DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/1565118574358569040/76tZFS50x1mz7w5uFLQhSGgJaZWaB-Bt98Vsq-2K_6j8HNWvoxaKPwin6hCiFZ_pZtMp
+   DISCORD_ROLE_ID=1565074386866802788
+   STATUS_PAGE_URL=https://status.roleflow.site
+   APP_URL=https://roleflow.site
+   POLL_INTERVAL_SECONDS=30
+   ```
+5. Click **Create Background Worker**.
 
-- **Failure Reasons**: Extracts exact error codes (`Status 502`, `Status 404`, `Timeout`) or defaults to `unknown`.
-- **Role Ping**: Automatically pings `<@&1565074386866802788>` on outage / service disruption events.
-- **Auto Recovery**: Posts clean green embeds when services return to operational state without spamming role pings.
+---
+
+## 🔔 Features
+- **24/7 Active Polling**: Runs every 30 seconds continuously in the background.
+- **Auto-Maintenance Sync**: Detects when Maintenance Mode is switched on or off in RoleFlow's Founder Admin console and posts custom reason embeds.
+- **Incident Root Cause**: Extracts failure error codes (`Status 502`, `Status 404`, `Timeout`) or defaults to `unknown`.
+- **Role Ping**: Automatically pings `<@&1565074386866802788>` during disruptions and maintenance.

@@ -1,0 +1,22 @@
+services:
+  # Background Worker Service (Runs 24/7 continuous polling)
+  - type: worker
+    name: roleflow-status-relay
+    env: node
+    plan: free
+    region: oregon
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: BETTERSTACK_API_TOKEN
+        sync: false
+      - key: DISCORD_WEBHOOK_URL
+        sync: false
+      - key: DISCORD_ROLE_ID
+        value: "1565074386866802788"
+      - key: STATUS_PAGE_URL
+        value: "https://status.roleflow.site"
+      - key: APP_URL
+        value: "https://roleflow.site"
+      - key: POLL_INTERVAL_SECONDS
+        value: "30"
