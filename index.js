@@ -6,6 +6,7 @@ const API_TOKEN = process.env.BETTERSTACK_API_TOKEN;
 const WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
 const POLL_INTERVAL = (parseInt(process.env.POLL_INTERVAL_SECONDS, 10) || 30) * 1000;
 const STATUS_PAGE_URL = process.env.STATUS_PAGE_URL || "https://status.roleflow.site";
+const NOTIFY_ROLE_ID = process.env.DISCORD_ROLE_ID || "1565074386866802788";
 const STATE_FILE = path.join(__dirname, "state.json");
 
 if (!API_TOKEN || !WEBHOOK_URL) {
@@ -13,7 +14,6 @@ if (!API_TOKEN || !WEBHOOK_URL) {
   process.exit(1);
 }
 
-// Read saved state to avoid duplicate alerts across restarts
 function loadState() {
   try {
     if (fs.existsSync(STATE_FILE)) {
@@ -23,7 +23,7 @@ function loadState() {
     console.warn("Could not read state.json, initializing clean state:", e.message);
   }
   return {
-    monitors: {}, // { [id]: status }
+    monitors: {},
     lastIncidentIds: [],
     initialized: false,
   };
@@ -37,12 +37,15 @@ function saveState(state) {
   }
 }
 
-// Send high-aesthetic Discord Embed
-async function postDiscordWebhook(embed) {
+async function postDiscordWebhook(embed, isDown = false) {
   try {
     const payload = {
       username: "RoleFlow Status",
       avatar_url: "https://roleflow.site/logo.png",
+      content: isDown && NOTIFY_ROLE_ID ? `<@&${NOTIFY_ROLE_ID}>` : "",
+      allowed_mentions: {
+        roles: [NOTIFY_ROLE_ID],
+      },
       embeds: [embed],
     };
 
@@ -63,62 +66,57 @@ async function postDiscordWebhook(embed) {
   }
 }
 
-// Format status embed
-function createMonitorStatusEmbed(monitor, oldStatus, newStatus) {
-  const isUp = newStatus === "up";
-  const isDown = newStatus === "down";
-  const isDegraded = newStatus === "maintenance" || newStatus === "paused";
+function createStatusEmbed({ name, url, previousStatus, currentStatus, reason }) {
+  const isUp = currentStatus === "up" || currentStatus === "Resolved";
+  const isDown = currentStatus === "down" || currentStatus === "Ongoing" || currentStatus === "Started";
 
-  const color = isUp ? 0x22c55e : isDown ? 0xef4444 : 0xf59e0b; // Green / Red / Amber
+  const color = isUp ? 0x22c55e : isDown ? 0xef4444 : 0xf59e0b;
   const statusEmoji = isUp ? "🟢" : isDown ? "🔴" : "🟡";
-  const title = `${statusEmoji} ${monitor.pronounceable_name || monitor.url}: ${newStatus.toUpperCase()}`;
+  const statusTitle = isUp ? "OPERATIONAL / RESOLVED" : isDown ? "SERVICE DISRUPTED / DOWN" : "MAINTENANCE";
 
   const description = isUp
-    ? `**System Recovered:** All services on this endpoint are responding with optimal latency and returning HTTP 200 OK.`
-    : `**Service Disruption Detected:** This endpoint is currently unreachable or returned an unhealthy response code. Our infrastructure team is investigating.`;
+    ? `**System Recovered:** All services on this endpoint are operational and responding normally.`
+    : `**Service Disruption Detected:** An outage or degraded performance has been detected by the uptime probe.`;
 
   return {
-    title,
+    title: `${statusEmoji} ${name}: ${statusTitle}`,
     url: STATUS_PAGE_URL,
     color,
     description,
     fields: [
       {
         name: "Endpoint URL",
-        value: `\`${monitor.url}\``,
-        inline: true,
-      },
-      {
-        name: "Previous State",
-        value: `\`${(oldStatus || "unknown").toUpperCase()}\``,
+        value: `\`${url || "N/A"}\``,
         inline: true,
       },
       {
         name: "Current State",
-        value: `\`${newStatus.toUpperCase()}\``,
+        value: `\`${(currentStatus || "unknown").toUpperCase()}\``,
         inline: true,
       },
       {
+        name: "Failure Reason / Root Cause",
+        value: `\`${reason || "unknown"}\``,
+        inline: false,
+      },
+      {
         name: "Live Status Page",
-        value: `[View Live Incident Status](${STATUS_PAGE_URL})`,
+        value: `[status.roleflow.site](${STATUS_PAGE_URL})`,
         inline: false,
       },
     ],
     footer: {
-      text: "RoleFlow Uptime & SRE Network • Automated Monitor",
+      text: "RoleFlow Uptime & SRE Network • BetterStack Relay",
       icon_url: "https://roleflow.site/logo.png",
     },
     timestamp: new Date().toISOString(),
   };
 }
 
-// Fetch monitors from BetterStack API v2
 async function checkMonitors(state) {
   try {
     const res = await fetch("https://uptime.betterstack.com/api/v2/monitors", {
-      headers: {
-        Authorization: `Bearer ${API_TOKEN}`,
-      },
+      headers: { Authorization: `Bearer ${API_TOKEN}` },
     });
 
     if (!res.ok) {
@@ -129,23 +127,41 @@ async function checkMonitors(state) {
     const json = await res.json();
     const monitors = json.data || [];
 
+    const incRes = await fetch("https://uptime.betterstack.com/api/v2/incidents", {
+      headers: { Authorization: `Bearer ${API_TOKEN}` },
+    });
+    const incJson = incRes.ok ? await incRes.json() : { data: [] };
+    const incidentMap = {};
+    for (const inc of incJson.data || []) {
+      const a = inc.attributes;
+      if (a.status === "Ongoing" || a.status === "Started") {
+        incidentMap[a.url] = a.cause || "unknown";
+      }
+    }
+
     for (const item of monitors) {
       const id = item.id;
       const attrs = item.attributes;
-      const currentStatus = attrs.status; // 'up', 'down', 'maintenance', 'paused'
+      const currentStatus = attrs.status;
       const previousStatus = state.monitors[id];
 
-      // If initial run, just record current status
       if (!state.initialized) {
         state.monitors[id] = currentStatus;
         continue;
       }
 
-      // Check if status changed
       if (previousStatus && previousStatus !== currentStatus) {
-        console.log(`[Status Change] ${attrs.pronounceable_name}: ${previousStatus} -> ${currentStatus}`);
-        const embed = createMonitorStatusEmbed(attrs, previousStatus, currentStatus);
-        await postDiscordWebhook(embed);
+        const isDown = currentStatus === "down";
+        const reason = incidentMap[attrs.url] || (currentStatus === "up" ? "HTTP 200 OK — Probe Passed" : "unknown");
+        console.log(`[Status Change] ${attrs.pronounceable_name}: ${previousStatus} -> ${currentStatus} (Reason: ${reason})`);
+        const embed = createStatusEmbed({
+          name: attrs.pronounceable_name || attrs.url,
+          url: attrs.url,
+          previousStatus,
+          currentStatus,
+          reason,
+        });
+        await postDiscordWebhook(embed, isDown);
         state.monitors[id] = currentStatus;
         saveState(state);
       } else if (!previousStatus) {
@@ -164,7 +180,6 @@ async function checkMonitors(state) {
   }
 }
 
-// Main Polling Loop
 async function main() {
   console.log("=== RoleFlow BetterStack Status Relay Bot Started ===");
   console.log(`Target Status Page: ${STATUS_PAGE_URL}`);

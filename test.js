@@ -4,13 +4,13 @@ const WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
 const STATUS_PAGE_URL = process.env.STATUS_PAGE_URL || "https://status.roleflow.site";
 
 async function sendTestPreview() {
-  console.log("Sending sample test status embed to Discord...");
+  console.log("Sending sample test status embed with Reason field to Discord...");
 
   const sampleEmbed = {
-    title: "🟢 RoleFlow API & Database Health: OPERATIONAL",
+    title: "🔴 RoleFlow API & Database Health: SERVICE DISRUPTED / DOWN",
     url: STATUS_PAGE_URL,
-    color: 0x22c55e, // Emerald green
-    description: "**All Systems Operational:** Real-time health check passed. API latency is optimal (42ms) and PostgreSQL database connections are responding with zero packet loss.",
+    color: 0xef4444, // Crimson Red
+    description: "**Service Disruption Detected:** An outage or degraded performance has been detected by the uptime probe.",
     fields: [
       {
         name: "Endpoint URL",
@@ -18,14 +18,14 @@ async function sendTestPreview() {
         inline: true,
       },
       {
-        name: "Monitored Service",
-        value: "`Core API & Database`",
+        name: "Current State",
+        value: "`DOWN`",
         inline: true,
       },
       {
-        name: "Current State",
-        value: "`UP (200 OK)`",
-        inline: true,
+        name: "Failure Reason / Root Cause",
+        value: "`Status 502 — Bad Gateway`",
+        inline: false,
       },
       {
         name: "Live Status Page",
@@ -53,7 +53,7 @@ async function sendTestPreview() {
   });
 
   if (res.ok) {
-    console.log("Sample test webhook successfully sent! Check your Discord channel.");
+    console.log("Sample test webhook successfully delivered to Discord!");
   } else {
     console.error("Failed to send webhook:", res.status, await res.text());
   }

@@ -1,47 +1,24 @@
-# RoleFlow Status & BetterStack Relay Bot
+# RoleFlow Status Bot (BetterStack Relay)
 
-An autonomous microservice that polls the **BetterStack API v2** on the free tier and relays live status updates, incident publications, and service recoveries into Discord using branded embeds.
-
----
-
-## 🛠 Features
-
-- **Free-Tier Friendly**: Bypasses BetterStack's paid outgoing webhook restriction by polling their official REST API.
-- **Branded Discord Embeds**: Formats uptime recoveries (🟢), service disruptions (🔴), and maintenance windows (🟡) with official RoleFlow branding, direct links to `status.roleflow.site`, and ISO timestamps.
-- **Persistent State**: Maintains `state.json` so you never get spammed with duplicate notifications upon server restarts.
-- **Configurable Polling**: Easily adjust poll frequency (default: 30 seconds).
+A serverless status relay engineered for **Vercel Cron** or standalone Node.js environments. It checks BetterStack's live monitor and incident endpoints, extracting root causes and sending branded Discord alerts.
 
 ---
 
-## 🚀 Quick Setup
+## ⚡ Deployment on Vercel
 
-1. **Install Dependencies**:
-   ```bash
-   npm install
-   ```
-
-2. **Configure `.env`**:
-   ```env
-   BETTERSTACK_API_TOKEN=your_betterstack_api_token
-   DISCORD_WEBHOOK_URL=your_discord_webhook_url
-   POLL_INTERVAL_SECONDS=30
-   STATUS_PAGE_URL=https://status.roleflow.site
-   ```
-
-3. **Send a Test Webhook**:
-   ```bash
-   npm run test-webhook
-   ```
-
-4. **Run Live Daemon**:
-   ```bash
-   npm start
-   ```
+1. **Import this repository** in your [Vercel Dashboard](https://vercel.com/new).
+2. Add the following **Environment Variables** in Vercel Project Settings:
+   - `BETTERSTACK_API_TOKEN`: Your BetterStack API v2 token (`MXuY...`)
+   - `DISCORD_WEBHOOK_URL`: Your Discord webhook URL
+   - `DISCORD_ROLE_ID`: `1565074386866802788` (Pings on downtime)
+   - `STATUS_PAGE_URL`: `https://status.roleflow.site`
+3. Click **Deploy**.
+4. Vercel will automatically configure the cron job from `vercel.json` (`/api/cron` running every minute) to monitor your site 24/7 with zero server costs!
 
 ---
 
-## 🌐 24/7 Hosting Options
+## 🔔 Discord Alert Features
 
-You can host this standalone project on free or low-cost services:
-- **Render.com / Railway / Koyeb**: Deploy as a background worker.
-- **VPS / Linux Server**: Run with `pm2 start index.js --name "roleflow-status"`.
+- **Failure Reasons**: Extracts exact error codes (`Status 502`, `Status 404`, `Timeout`) or defaults to `unknown`.
+- **Role Ping**: Automatically pings `<@&1565074386866802788>` on outage / service disruption events.
+- **Auto Recovery**: Posts clean green embeds when services return to operational state without spamming role pings.
