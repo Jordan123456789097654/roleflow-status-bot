@@ -41,18 +41,8 @@ function saveState(state) {
   }
 }
 
-async function postDiscordWebhook(embed, pingRole = false) {
+async function postDiscordWebhook(payload) {
   try {
-    const payload = {
-      username: "RoleFlow Status",
-      avatar_url: "https://roleflow.site/logo.png",
-      content: pingRole && NOTIFY_ROLE_ID ? `<@&${NOTIFY_ROLE_ID}>` : "",
-      allowed_mentions: {
-        roles: [NOTIFY_ROLE_ID],
-      },
-      embeds: [embed],
-    };
-
     const res = await fetch(WEBHOOK_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -63,7 +53,7 @@ async function postDiscordWebhook(embed, pingRole = false) {
       const errText = await res.text();
       console.error(`Discord webhook error (${res.status}):`, errText);
     } else {
-      console.log(`[Discord] Webhook delivered: "${embed.title}"`);
+      console.log(`[Discord] Webhook delivered: "${payload.embeds?.[0]?.title || "Status Alert"}"`);
     }
   } catch (err) {
     console.error("Error posting to Discord webhook:", err.message);
@@ -75,7 +65,7 @@ function createMaintenanceEmbed(enabled, message) {
     return {
       title: "🟡 Scheduled Platform Maintenance in Progress",
       url: STATUS_PAGE_URL,
-      color: 0xf59e0b, // Amber Gold
+      color: 0xf59e0b,
       description:
         "**Platform Maintenance Activated:** RoleFlow has entered scheduled maintenance mode. Public submission queues and candidate portals are temporarily locked while upgrades are applied.",
       fields: [
@@ -110,7 +100,7 @@ function createMaintenanceEmbed(enabled, message) {
     return {
       title: "🟢 Scheduled Maintenance Completed — Platform Restored",
       url: STATUS_PAGE_URL,
-      color: 0x22c55e, // Emerald Green
+      color: 0x22c55e,
       description:
         "**Maintenance Complete:** Platform upgrades have finished. RoleFlow is fully operational and public access has been restored.",
       fields: [
@@ -139,47 +129,68 @@ function createMaintenanceEmbed(enabled, message) {
   }
 }
 
-function createStatusEmbed({ name, url, previousStatus, currentStatus, reason }) {
-  const isUp = currentStatus === "up" || currentStatus === "Resolved";
-  const isDown = currentStatus === "down" || currentStatus === "Ongoing" || currentStatus === "Started";
+function createConsolidatedOutageEmbed(outages) {
+  const isMulti = outages.length > 1;
+  const title = isMulti
+    ? `🚨 MULTIPLE SERVICES DISRUPTED (${outages.length} Monitors Affected)`
+    : `🔴 ${outages[0].name}: SERVICE DISRUPTED / DOWN`;
 
-  const color = isUp ? 0x22c55e : isDown ? 0xef4444 : 0xf59e0b;
-  const statusEmoji = isUp ? "🟢" : isDown ? "🔴" : "🟡";
-  const statusTitle = isUp ? "OPERATIONAL / RESOLVED" : isDown ? "SERVICE DISRUPTED / DOWN" : "MAINTENANCE";
+  const fields = outages.map((item, idx) => ({
+    name: `${idx + 1}. ${item.name}`,
+    value: `• **Endpoint**: \`${item.url}\`\n• **Status**: \`${item.currentStatus.toUpperCase()}\`\n• **Reason**: \`${item.reason || "unknown"}\``,
+    inline: false,
+  }));
 
-  const description = isUp
-    ? `**System Recovered:** All services on this endpoint are operational and responding normally.`
-    : `**Service Disruption Detected:** An outage or degraded performance has been detected by the uptime probe.`;
+  fields.push({
+    name: "Live Status Page",
+    value: `[status.roleflow.site](${STATUS_PAGE_URL})`,
+    inline: false,
+  });
 
   return {
-    title: `${statusEmoji} ${name}: ${statusTitle}`,
+    title,
     url: STATUS_PAGE_URL,
-    color,
-    description,
-    fields: [
-      {
-        name: "Endpoint URL",
-        value: `\`${url || "N/A"}\``,
-        inline: true,
-      },
-      {
-        name: "Current State",
-        value: `\`${(currentStatus || "unknown").toUpperCase()}\``,
-        inline: true,
-      },
-      {
-        name: "Failure Reason / Root Cause",
-        value: `\`${reason || "unknown"}\``,
-        inline: false,
-      },
-      {
-        name: "Live Status Page",
-        value: `[status.roleflow.site](${STATUS_PAGE_URL})`,
-        inline: false,
-      },
-    ],
+    color: 0xef4444,
+    description: `**Infrastructure Incident Detected:** ${
+      isMulti
+        ? `BetterStack probes detected concurrent outages across **${outages.length} endpoints**. SRE investigation initiated.`
+        : `An outage or degraded response was detected for this service.`
+    }`,
+    fields,
     footer: {
-      text: "RoleFlow Uptime & SRE Network • BetterStack Relay",
+      text: "RoleFlow Uptime & SRE Network • Consolidated Alert",
+      icon_url: "https://roleflow.site/logo.png",
+    },
+    timestamp: new Date().toISOString(),
+  };
+}
+
+function createConsolidatedRecoveryEmbed(recoveries) {
+  const isMulti = recoveries.length > 1;
+  const title = isMulti
+    ? `🟢 ALL SERVICES RESTORED (${recoveries.length} Monitors Operational)`
+    : `🟢 ${recoveries[0].name}: OPERATIONAL / RESOLVED`;
+
+  const fields = recoveries.map((item, idx) => ({
+    name: `${idx + 1}. ${item.name}`,
+    value: `• **Endpoint**: \`${item.url}\`\n• **Status**: \`UP (200 OK)\`\n• **Resolution**: \`${item.reason}\``,
+    inline: false,
+  }));
+
+  fields.push({
+    name: "Live Status Page",
+    value: `[status.roleflow.site](${STATUS_PAGE_URL})`,
+    inline: false,
+  });
+
+  return {
+    title,
+    url: STATUS_PAGE_URL,
+    color: 0x22c55e,
+    description: `**Systems Operational:** Probes are successfully returning HTTP 200 OK. Latency and health metrics have stabilized.`,
+    fields,
+    footer: {
+      text: "RoleFlow Uptime & SRE Network • Service Recovery",
       icon_url: "https://roleflow.site/logo.png",
     },
     timestamp: new Date().toISOString(),
@@ -199,7 +210,13 @@ async function checkSystem(state) {
         if (state.maintenance && state.maintenance.enabled !== null && state.maintenance.enabled !== currentEnabled) {
           console.log(`[Maintenance Change] Enabled: ${state.maintenance.enabled} -> ${currentEnabled} (${currentMsg})`);
           const maintEmbed = createMaintenanceEmbed(currentEnabled, currentMsg);
-          await postDiscordWebhook(maintEmbed, currentEnabled);
+          await postDiscordWebhook({
+            username: "RoleFlow Status",
+            avatar_url: "https://roleflow.site/logo.png",
+            content: currentEnabled && NOTIFY_ROLE_ID ? `<@&${NOTIFY_ROLE_ID}>` : "",
+            allowed_mentions: { roles: [NOTIFY_ROLE_ID] },
+            embeds: [maintEmbed],
+          });
         }
 
         state.maintenance = {
@@ -237,6 +254,9 @@ async function checkSystem(state) {
       }
     }
 
+    const pendingOutages = [];
+    const pendingRecoveries = [];
+
     for (const item of monitors) {
       const id = item.id;
       const attrs = item.attributes;
@@ -250,28 +270,59 @@ async function checkSystem(state) {
 
       if (previousStatus && previousStatus !== currentStatus) {
         const isDown = currentStatus === "down";
-        const reason = incidentMap[attrs.url] || (currentStatus === "up" ? "HTTP 200 OK — Probe Passed" : "unknown");
-        console.log(`[Status Change] ${attrs.pronounceable_name}: ${previousStatus} -> ${currentStatus} (Reason: ${reason})`);
-        const embed = createStatusEmbed({
+        const isUp = currentStatus === "up";
+        const reason = incidentMap[attrs.url] || (isUp ? "HTTP 200 OK — Probe Passed" : "unknown");
+
+        const record = {
           name: attrs.pronounceable_name || attrs.url,
           url: attrs.url,
           previousStatus,
           currentStatus,
           reason,
-        });
-        await postDiscordWebhook(embed, isDown);
-        state.monitors[id] = currentStatus;
-        saveState(state);
-      } else if (!previousStatus) {
-        state.monitors[id] = currentStatus;
-        saveState(state);
+        };
+
+        if (isDown) {
+          pendingOutages.push(record);
+        } else if (isUp) {
+          pendingRecoveries.push(record);
+        }
       }
+
+      state.monitors[id] = currentStatus;
     }
 
     if (!state.initialized) {
       state.initialized = true;
       saveState(state);
       console.log(`[Initialization] Loaded ${monitors.length} BetterStack monitors. Polling every ${POLL_INTERVAL / 1000}s...`);
+      return;
+    }
+
+    // DISPATCH MERGED OUTAGES
+    if (pendingOutages.length > 0) {
+      console.log(`[Consolidated Outage] Merging ${pendingOutages.length} monitor failure(s) into 1 ping`);
+      const embed = createConsolidatedOutageEmbed(pendingOutages);
+      await postDiscordWebhook({
+        username: "RoleFlow Status",
+        avatar_url: "https://roleflow.site/logo.png",
+        content: NOTIFY_ROLE_ID ? `<@&${NOTIFY_ROLE_ID}>` : "",
+        allowed_mentions: { roles: [NOTIFY_ROLE_ID] },
+        embeds: [embed],
+      });
+      saveState(state);
+    }
+
+    // DISPATCH MERGED RECOVERIES
+    if (pendingRecoveries.length > 0) {
+      console.log(`[Consolidated Recovery] Merging ${pendingRecoveries.length} monitor recovery(ies) into 1 embed`);
+      const embed = createConsolidatedRecoveryEmbed(pendingRecoveries);
+      await postDiscordWebhook({
+        username: "RoleFlow Status",
+        avatar_url: "https://roleflow.site/logo.png",
+        content: "",
+        embeds: [embed],
+      });
+      saveState(state);
     }
   } catch (err) {
     console.error("Monitor polling loop error:", err.message);
@@ -279,7 +330,7 @@ async function checkSystem(state) {
 }
 
 async function main() {
-  console.log("=== RoleFlow BetterStack & Maintenance Relay Bot Started ===");
+  console.log("=== RoleFlow BetterStack & Maintenance Relay Bot Started (Consolidated Mode) ===");
   console.log(`Target Status Page: ${STATUS_PAGE_URL}`);
   const state = loadState();
 
