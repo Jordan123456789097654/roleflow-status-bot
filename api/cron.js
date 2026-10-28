@@ -1,7 +1,6 @@
 const API_TOKEN = process.env.BETTERSTACK_API_TOKEN;
 const WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
 const STATUS_PAGE_URL = process.env.STATUS_PAGE_URL || "https://status.roleflow.site";
-const NOTIFY_ROLE_ID = process.env.DISCORD_ROLE_ID || "1565074386866802788";
 const APP_URL = process.env.APP_URL || "https://roleflow.site";
 
 let memoryCache = {
@@ -18,7 +17,11 @@ async function postDiscordWebhook(payload) {
     const res = await fetch(WEBHOOK_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        ...payload,
+        content: "",
+        allowed_mentions: { parse: [] },
+      }),
     });
 
     return res.ok;
@@ -97,7 +100,6 @@ function createMaintenanceEmbed(enabled, message) {
   }
 }
 
-// Builds a single consolidated embed when multiple monitors change at once
 function createConsolidatedOutageEmbed(outages) {
   const isMulti = outages.length > 1;
   const title = isMulti
@@ -119,7 +121,7 @@ function createConsolidatedOutageEmbed(outages) {
   return {
     title,
     url: STATUS_PAGE_URL,
-    color: 0xef4444, // Red
+    color: 0xef4444,
     description: `**Infrastructure Incident Detected:** ${
       isMulti
         ? `BetterStack probes detected concurrent outages across **${outages.length} endpoints**. SRE investigation initiated.`
@@ -155,7 +157,7 @@ function createConsolidatedRecoveryEmbed(recoveries) {
   return {
     title,
     url: STATUS_PAGE_URL,
-    color: 0x22c55e, // Green
+    color: 0x22c55e,
     description: `**Systems Operational:** Probes are successfully returning HTTP 200 OK. Latency and health metrics have stabilized.`,
     fields,
     footer: {
@@ -187,8 +189,6 @@ export default async function handler(req, res) {
           await postDiscordWebhook({
             username: "RoleFlow Status",
             avatar_url: "https://roleflow.site/logo.png",
-            content: currentEnabled && NOTIFY_ROLE_ID ? `<@&${NOTIFY_ROLE_ID}>` : "",
-            allowed_mentions: { roles: [NOTIFY_ROLE_ID] },
             embeds: [maintEmbed],
           });
           changes.push({ type: "MAINTENANCE_TOGGLE", enabled: currentEnabled, reason: currentMsg });
@@ -264,26 +264,22 @@ export default async function handler(req, res) {
 
     memoryCache.initialized = true;
 
-    // --- DISPATCH CONSOLIDATED WEBHOOKS ---
-    // If multiple monitors went DOWN, send exactly 1 combined embed with 1 ping
+    // DISPATCH MERGED OUTAGES (No ping)
     if (pendingOutages.length > 0) {
       const embed = createConsolidatedOutageEmbed(pendingOutages);
       await postDiscordWebhook({
         username: "RoleFlow Status",
         avatar_url: "https://roleflow.site/logo.png",
-        content: NOTIFY_ROLE_ID ? `<@&${NOTIFY_ROLE_ID}>` : "",
-        allowed_mentions: { roles: [NOTIFY_ROLE_ID] },
         embeds: [embed],
       });
     }
 
-    // If multiple monitors RECOVERED, send exactly 1 combined embed without pinging
+    // DISPATCH MERGED RECOVERIES (No ping)
     if (pendingRecoveries.length > 0) {
       const embed = createConsolidatedRecoveryEmbed(pendingRecoveries);
       await postDiscordWebhook({
         username: "RoleFlow Status",
         avatar_url: "https://roleflow.site/logo.png",
-        content: "",
         embeds: [embed],
       });
     }

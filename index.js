@@ -6,7 +6,6 @@ const API_TOKEN = process.env.BETTERSTACK_API_TOKEN;
 const WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
 const POLL_INTERVAL = (parseInt(process.env.POLL_INTERVAL_SECONDS, 10) || 30) * 1000;
 const STATUS_PAGE_URL = process.env.STATUS_PAGE_URL || "https://status.roleflow.site";
-const NOTIFY_ROLE_ID = process.env.DISCORD_ROLE_ID || "1565074386866802788";
 const APP_URL = process.env.APP_URL || "https://roleflow.site";
 const STATE_FILE = path.join(__dirname, "state.json");
 
@@ -46,7 +45,11 @@ async function postDiscordWebhook(payload) {
     const res = await fetch(WEBHOOK_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        ...payload,
+        content: "", // No role or user mentions
+        allowed_mentions: { parse: [] }, // Strict no-mention policy
+      }),
     });
 
     if (!res.ok) {
@@ -213,8 +216,6 @@ async function checkSystem(state) {
           await postDiscordWebhook({
             username: "RoleFlow Status",
             avatar_url: "https://roleflow.site/logo.png",
-            content: currentEnabled && NOTIFY_ROLE_ID ? `<@&${NOTIFY_ROLE_ID}>` : "",
-            allowed_mentions: { roles: [NOTIFY_ROLE_ID] },
             embeds: [maintEmbed],
           });
         }
@@ -298,28 +299,25 @@ async function checkSystem(state) {
       return;
     }
 
-    // DISPATCH MERGED OUTAGES
+    // DISPATCH MERGED OUTAGES (No ping)
     if (pendingOutages.length > 0) {
-      console.log(`[Consolidated Outage] Merging ${pendingOutages.length} monitor failure(s) into 1 ping`);
+      console.log(`[Consolidated Outage] Delivering ${pendingOutages.length} monitor failure(s) without pings`);
       const embed = createConsolidatedOutageEmbed(pendingOutages);
       await postDiscordWebhook({
         username: "RoleFlow Status",
         avatar_url: "https://roleflow.site/logo.png",
-        content: NOTIFY_ROLE_ID ? `<@&${NOTIFY_ROLE_ID}>` : "",
-        allowed_mentions: { roles: [NOTIFY_ROLE_ID] },
         embeds: [embed],
       });
       saveState(state);
     }
 
-    // DISPATCH MERGED RECOVERIES
+    // DISPATCH MERGED RECOVERIES (No ping)
     if (pendingRecoveries.length > 0) {
-      console.log(`[Consolidated Recovery] Merging ${pendingRecoveries.length} monitor recovery(ies) into 1 embed`);
+      console.log(`[Consolidated Recovery] Delivering ${pendingRecoveries.length} monitor recovery(ies) without pings`);
       const embed = createConsolidatedRecoveryEmbed(pendingRecoveries);
       await postDiscordWebhook({
         username: "RoleFlow Status",
         avatar_url: "https://roleflow.site/logo.png",
-        content: "",
         embeds: [embed],
       });
       saveState(state);
@@ -330,7 +328,7 @@ async function checkSystem(state) {
 }
 
 async function main() {
-  console.log("=== RoleFlow BetterStack & Maintenance Relay Bot Started (Consolidated Mode) ===");
+  console.log("=== RoleFlow Status Bot Started (Silent Mode - No Pings) ===");
   console.log(`Target Status Page: ${STATUS_PAGE_URL}`);
   const state = loadState();
 
